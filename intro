@@ -1,0 +1,219 @@
+
+library(dplyr)
+library(mfx)
+library(ggplot2)
+
+# We have NGS dataset and runs of homozygosity regions for each observations (probands and siblings). 
+
+
+# ROH length more than 1750 fopr proband
+dframe1750 <- read.csv("dframe1750.csv", sep = ",")
+
+# ROH length more than 1750 fopr siblings
+carry1750 <- read.csv("Carry1750.csv", sep = ",")
+
+
+
+# To compare Intellectula disability we are filtering IQ <70  OR >70
+d1750more <-dframe1750 %>% filter(IQ > 70 )
+d1750less <-dframe1750 %>% filter(IQ <= 70 )
+
+
+
+
+ 
+# 1 POISSON TEST
+# comparing the proband and siblings for each ID and non ID groups
+
+
+#comparing probands & siblings for IQ > 70 for deleterious variants
+
+p1750more <-poisson.test(c(sum(d1750more$Del_Prob), sum(d1750more$Del_Sib)),
+                         c(length(d1750more$Del_Prob),length(d1750more$Del_Sib)))
+
+#comparing proband & siblings for IQ < 70
+
+p1750less <-poisson.test(c(sum(d1750less$Del_Prob), sum(d1750less$Del_Sib)),
+                         c(length(d1750less$Del_Prob),length(d1750less$Del_Sib)))
+
+
+#estimating 
+
+resm1 <- data.frame(0)
+
+resm1$ratio <-p1750more$estimate # ratio IQ>70 
+resm1$se <-(p1750more$conf.int[2]-p1750more$conf.int[1])/(2*1.96) #approximate SE
+resm1$cmin <- p1750more$estimate-(p1750more$conf.int[2]-p1750more$conf.int[1])/(2*1.96)# Apprx. CImin 
+resm1$cmax <- p1750more$estimate+(p1750more$conf.int[2]-p1750more$conf.int[1])/(2*1.96)# Apprx. CImax 
+resm1$pv <-p1750more$p.value # pvalue
+
+resl1 <- data.frame(0)
+
+resl1$ratio <-p1750less$estimate # IQ<=70 
+resl1$se <-(p1750less$conf.int[2]-p1750less$conf.int[1])/(2*1.96) #apprx SE
+resl1$cmin <- p1750less$estimate-(p1750less$conf.int[2]-p1750less$conf.int[1])/(2*1.96)# CImin, bunu ratio -Se dan biz hesapladık
+resl1$cmax <- p1750less$estimate+(p1750less$conf.int[2]-p1750less$conf.int[1])/(2*1.96)# CImax, bunu ratio +Se dan biz hesapladık
+resl1$pv <-p1750less$p.value # pvalue
+
+   
+# 2 . Conditional Logistic Regression (CLOGIT) IRR 
+
+# Applying only for the deleterious variants
+
+cdel_prob1750 <- d1750less$Del_Prob
+cdel_sib1750  <- d1750less$Del_Sib
+
+
+x<-cbind(d1750less[,"Family_ID"], cdel_prob1750, cdel_sib1750) 
+
+b<-matrix(0, nrow=nrow(x)*2, 4)
+
+for (ix in 1:nrow(xx)) {
+  
+  b[2*ix-1, 1]=x[ix,1]
+  b[2*ix-1,2]=ix
+  b[2*ix-1,3]=x[ix,2]
+  b[2*ix-1,4]=1
+  
+  b[2*ix,1]=x[ix,1]
+  b[2*ix,2]=ix
+  b[2*ix,3]=x[ix,3]
+  b[2*ix,4]=0   
+}
+
+
+b<-as.data.frame(b)
+colnames(b)<-c("Family_ID","Pairs" , "Del_Prob","Del_Sib")
+
+regg<- clogit(Del_Prob~Del_Sib+strata(Pairs), b)
+sum<-summary(regg)
+
+
+# Estimation
+ress1<-data.frame(0)
+ress1$ratio<- sum$coefficients[2] # IQ<=70 icin ratio
+ress1$se<- sum$coefficients[3] # SE
+ress1$cmin<- sum$coefficients[2]-sum$coefficients[3] # CI min, bunu ratio -Se dan biz hesapladık
+ress1$cmax<- sum$coefficients[2]+sum$coefficients[3] # CI max, bunu ratio +Se dan biz hesapladık
+ress1$pv<- sum$coefficients[5]  # p-value
+ress1
+
+
+#Clogit IQ > 70
+
+cdel_prob1750 <- d1750more$Del_Prob
+cdel_sib1750 <-d1750more$Del_Sib
+
+
+xx<-cbind(d1750more[,"Family_ID"], cdel_prob1750, cdel_sib1750) 
+
+a<-matrix(0, nrow=nrow(xx)*2, 4)
+
+for (ix in 1:nrow(xx)) {
+  
+  a[2*ix-1, 1]=xx[ix,1]
+  a[2*ix-1,2]=ix
+  a[2*ix-1,3]=xx[ix,2]
+  a[2*ix-1,4]=1
+  
+  a[2*ix,1]=xx[ix,1]
+  a[2*ix,2]=ix
+  a[2*ix,3]=xx[ix,3]
+  a[2*ix,4]=0   
+}
+
+a<-as.data.frame(a)
+colnames(a)<-c("Family_ID","Pairs" , "Del_Prob","Del_Sib")
+
+reg<- clogit(Del_Prob~Del_Sib+strata(Pairs), a)
+summ<-summary(reg)
+
+resl1$cmin
+
+res1<-data.frame(0)
+
+res1$ratio<- summ$coefficients[2] # IQ>70 
+res1$se<- summ$coefficients[3] # SE
+res1$cmin<- summ$coefficients[2]-summ$coefficients[3] # CI min, bunu ratio -Se dan biz hesapladık
+res1$cmax<- summ$coefficients[2]+summ$coefficients[3] # CI max, bunu ratio +Se dan biz hesapladık
+res1$pv<- summ$coefficients[5]  # p-value
+res1
+
+
+ft<-poissonirr(Del_Prob~ Del_Sib,data=a)
+res2<-matrix(c(0), nrow=4,ncol =10)
+i =1
+res2[i, 1]<-  ft$irr[1]   #  irr  
+res2[i, 2]<-  ft$irr[2] # se
+res2[i, 3]<-  ft$irr[1]-ft$irr[2]# CI min
+res2[i, 4]<-  ft$irr[1]+ft$irr[2] # CI max
+res2[i, 5]<-  ft$irr[4] # p value
+res2
+
+
+##GGPLOT 
+
+#A1
+
+
+
+######################
+#If you repeat the steps above you can find the results for 2000,2500,3000 ROH regions and you can draw the
+# graph for each ROH regions 1750, 2000, 2500, 3000
+# we compare IRR values for each ROH region in the ggplot below
+
+ratioless<-c(resl1$ratio,resl2$ratio,resl3$ratio,resl4$ratio)
+ratiomore<-c(resm1$ratio,resm2$ratio,resm3$ratio,resm4$ratio)
+
+df<-data.frame(min_seg_size=c(1750,2000,2500,3000,1750,2000,2500,3000), 
+               ratio=c(ratioless,ratiomore),
+               SE=c(less70$se,more70$se),
+               Semin=ratio-SE,
+               Semax=ratio+SE,  
+               p_val=c(less70$pv,more70$pv),
+               IQ=c( "IQ≤70 (n=680)","IQ≤70 (n=680)","IQ≤70 (n=680)","IQ≤70 (n=680)","IQ>70 (n=1465)",
+                     "IQ>70 (n=1465)","IQ>70 (n=1465)","IQ>70 (n=1465)"))
+
+df$IQ <- factor(df$IQ, levels=c("IQ≤70 (n=680)","IQ>70 (n=1465)"))
+
+df$p_val_sig <- c("*", "*", "*", "")[findInterval(df$p_val, c(0.001, 0.01, 0.05)) + 1]
+df
+
+bas<-0.8
+bit<-2.6
+aralik<-0.2
+scaleY<-seq(bas,bit,aralik)
+ylimt<-c((bas-0.05), (bit+0.05))
+
+
+p192<-ggplot(df, aes(x=min_seg_size, y=ratio, group=IQ)) +
+  geom_line(aes(color=IQ))+
+  geom_point(aes(color=IQ)) + scale_color_manual(values=c("#0072B2","#CC0000")) +
+  ylab(expression(bold(paste("Average Block size\n Ratio of Affected/Unaffected "))) ) + 
+  xlab(expression(bold(paste("Minimum Segment Size (kb)")))) +
+  theme( axis.title.y = element_text(size = 10,  margin = margin(t = 0, r =0, b = 0, l = 4,   unit = "mm")), 
+         axis.title.x = element_text(size = 10,  margin = margin(t = 0, r =0, b = 0, l = 0,   unit = "mm")), 
+         panel.background = element_rect(fill = "white",      colour = "grey"))+
+  scale_x_continuous(breaks = c( 1500,1750,2000,2500,3000,3500))+
+  scale_y_continuous(breaks = c( scaleY))+
+  theme(
+    legend.title = element_blank(), legend.text = element_text(size=12)) + 
+  theme( # remove the vertical grid lines
+    panel.grid.major.x = element_blank() ,
+    # explicitly set the horizontal lines (or they will disappear too)
+    panel.grid.major.y = element_line(size=.1, color="black" )  ) 
+p192
+
+# Adding CI 
+p192 +
+  geom_errorbar(data=df, mapping=aes(x=min_seg_size, ymin=Semin, ymax=Semax), size=0.5, color="grey",width = 50)  +
+  coord_cartesian(xlim =c(1750, 3000), ylim = ylimt)+
+  theme(panel.grid.major.y = element_line(colour = "gray40", linetype="solid")) + 
+  theme(text = element_text(size=rel(3.5)),
+        strip.text.x = element_text(),
+        strip.text.y = element_text(size=rel(2.5)))+ 
+  theme(text = element_text(size=rel(3.5)),
+        strip.text.x = element_text(size=rel(3.5)),
+        strip.text.y = element_text(size=rel(2.5)))
+
+
